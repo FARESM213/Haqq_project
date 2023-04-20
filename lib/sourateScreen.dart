@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -18,7 +19,7 @@ class QuranSurahDetailsScreen extends StatefulWidget {
 
 class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
   bool isplaying = false;
-  late Future<List<List<dynamic>>> surahVerses;
+  late Future<Map<String, dynamic>> surahVerses;
   final audioPlayer = AudioPlayer();
   Duration duration = Duration.zero;
   Duration position = Duration.zero;
@@ -30,12 +31,14 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
   bool isDisposed = false;
   Duration lastPosition = Duration.zero;
   bool waspaused = false; // Ajouter cette ligne et initialiser à false
+  late List<double> audioDurations;
 
   @override
   void initState() {
     super.initState();
     isLoadingNextVerse = false;
     surahVerses = fetchSurahVerses();
+
     audioPlayer.onPlayerStateChanged.listen((state) {
       if (isDisposed) return;
       setState(() {
@@ -68,57 +71,39 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
     });
   }
   Future<void> preloadAudio(String audioUrl) async {
-    try {
-      if (kDebugMode) {
-        print('Loading audio: $audioUrl');
-      }
-      await audioPlayer.setUrl(audioUrl);
-      if (kDebugMode) {
-        print('Audio loaded successfully: $audioUrl');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error loading audio: $audioUrl');
-      }
-      if (kDebugMode) {
-        print(e);
-      }
-    }
+    await audioPlayer.setUrl(audioUrl);
   }
 
   Future<void> playVerseAudio() async {
     if (currentIndex < audio.length) {
       currentAudioUrl = audio[currentIndex];
-      try {
-        await preloadAudio("https://verses.quran.com/$currentAudioUrl");
-        if (kDebugMode) {
-          print('Starting to play audio: $currentAudioUrl');
-        }
-        await audioPlayer.play("https://verses.quran.com/$currentAudioUrl");
-        if (kDebugMode) {
-          print('Audio playback started: $currentAudioUrl');
-        }
-        await audioPlayer.setVolume(1.0);
-        currentIndex++;
-        isLoadingNextVerse = false;
-        if (currentIndex < audio.length) {
-          nextAudioUrl = audio[currentIndex];
-          await preloadAudio("https://verses.quran.com/$nextAudioUrl");
-        } else {
-          nextAudioUrl = ""; // Si c'est le dernier verset, le prochain est une chaîne vide
-        }
-        if (kDebugMode) {
-          print('Finished playing audio: $currentAudioUrl');
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error playing audio: $currentAudioUrl');
-        }
-        if (kDebugMode) {
-          print(e);
-        }
-      }
+      await preloadAudio("https://verses.quran.com/$currentAudioUrl");
+      await audioPlayer.play("https://verses.quran.com/$currentAudioUrl");
+      await audioPlayer.setVolume(1.0);
+      currentIndex++;
     }
+  }
+
+  Future<double> fetchAudioDuration(String audioUrl) async {
+    Completer<Duration> completer = Completer();
+    AudioPlayer audioPlayer = AudioPlayer();
+    await audioPlayer.setUrl("https://verses.quran.com/$audioUrl");
+    audioPlayer.onDurationChanged.listen((Duration duration) {
+      if (!completer.isCompleted) {
+        completer.complete(duration);
+      }
+    });
+    Duration audioDuration = await completer.future;
+    double durationInSeconds = audioDuration.inMilliseconds / 1000;
+    return durationInSeconds;
+  }
+
+  Future<List<double>> fetchAllAudioDurations(List<String> audioUrls) async {
+
+    List<Future<double>> durationFutures = audioUrls.map((url) => fetchAudioDuration(url)).toList();
+    List<double> durees = await Future.wait(durationFutures);
+    return durees;
+
   }
 
   @override
@@ -126,7 +111,6 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
     isDisposed = true;
     audioPlayer.stop();
     audioPlayer.dispose();
-    surahVerses = Future.value([]);
     audio.clear();
     audioPlayer.onPlayerStateChanged.drain();
     audioPlayer.onDurationChanged.drain();
@@ -164,13 +148,12 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
             height: MediaQuery.of(context).size.height * (3 / 4),
             child: Container(
               padding: const EdgeInsets.all(2.0),
-              child: FutureBuilder<List<List<dynamic>>>(
+              child: FutureBuilder<Map<String, dynamic>>(
                 future: surahVerses,
-                builder: (BuildContext context,
-                    AsyncSnapshot<List<List<dynamic>>> snapshot) {
+                builder: (BuildContext context, AsyncSnapshot<Map<String, dynamic>> snapshot) {
                   if (snapshot.hasData) {
                     var words = <TextSpan>[];
-                    for (var page in snapshot.data!) {
+                    for (var page in snapshot.data!['pages']) {
                       for (var verse in page) {
                         verse['words'].forEach((word) {
                           var fontFamily = '';
@@ -254,7 +237,7 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
                             physics: const BouncingScrollPhysics(),
                             child: Padding(
                               padding:
-                                  const EdgeInsets.symmetric(horizontal: 8.0),
+                              const EdgeInsets.symmetric(horizontal: 8.0),
                               child: Align(
                                 alignment: Alignment.centerRight,
                                 child: RichText(
@@ -279,12 +262,11 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
       ),
     );
   }
-
-  Future<List<List<dynamic>>> fetchSurahVerses() async {
+  Future<Map<String, dynamic>> fetchSurahVerses() async {
     var pages = <List<dynamic>>[];
+    List<double> audioDuration = [];
     int nombredepage = 1;
-    var url = Uri.parse(
-        '$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?language=en&words=false');
+    var url = Uri.parse('$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?language=en&words=false');
     var headers = {
       'accept': 'application/json',
       'X-API-Key': apiKey,
@@ -294,8 +276,7 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
       var data = jsonDecode(response.body)['pagination'];
       nombredepage = data['total_pages'];
       for (var i = 1; i <= nombredepage; i++) {
-        var url = Uri.parse(
-            '$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?words=true&translations=fr&audio=4&word_fields=code_v1&page=$i&per_page=10');
+        var url = Uri.parse('$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?words=true&translations=fr&audio=4&word_fields=code_v1&page=$i&per_page=10');
         var headers = {
           'accept': 'application/json',
           'X-API-Key': apiKey,
@@ -304,6 +285,8 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
         if (response.statusCode == 200) {
           var data = jsonDecode(response.body)['verses'];
           pages.add(data);
+          List<String> audioUrls = (data as List<dynamic>).map((verse) => (verse['audio']['url'] as String)).toList();
+          audioDuration = await fetchAllAudioDurations(audioUrls);
         } else {
           throw Exception('Erreur: ${response.statusCode}');
         }
@@ -311,6 +294,10 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
     } else {
       throw Exception('Erreur: ${response.statusCode}');
     }
-    return pages;
+
+    return {
+      'pages': pages,
+      'durations': audioDuration,
+    };
   }
 }
