@@ -4,8 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:haqq/sourateScreen.dart';
 import 'package:http/http.dart' as http;
 
-const String API_KEY = 'your_api_key';
-const String API_BASE_URL = 'https://api.quran.com/api/v4';
+const String apiKey = 'your_api_key';
+const String apiBaseUrl = 'https://api.quran.com/api/v4';
 
 class QuranSurahsScreen extends StatefulWidget {
   const QuranSurahsScreen({super.key});
@@ -24,10 +24,10 @@ class _QuranSurahsScreenState extends State<QuranSurahsScreen> {
   }
 
   void fetchSurahs() async {
-    var url = Uri.parse('$API_BASE_URL/chapters?language=fr');
+    var url = Uri.parse('$apiBaseUrl/chapters?language=fr');
     var headers = {
       'accept': 'application/json',
-      'X-API-Key': API_KEY,
+      'X-API-Key': apiKey,
     };
     var response = await http.get(url, headers: headers);
     if (response.statusCode == 200) {

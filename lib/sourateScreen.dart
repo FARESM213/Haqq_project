@@ -4,8 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-const String API_KEY = 'your_api_key';
-const String API_BASE_URL = 'https://api.quran.com/api/v4';
+const String apiKey = 'your_api_key';
+const String apiBaseUrl = 'https://api.quran.com/api/v4';
 
 class QuranSurahDetailsScreen extends StatefulWidget {
   final dynamic surah;
@@ -69,12 +69,20 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
   }
   Future<void> preloadAudio(String audioUrl) async {
     try {
-      print('Loading audio: $audioUrl');
+      if (kDebugMode) {
+        print('Loading audio: $audioUrl');
+      }
       await audioPlayer.setUrl(audioUrl);
-      print('Audio loaded successfully: $audioUrl');
+      if (kDebugMode) {
+        print('Audio loaded successfully: $audioUrl');
+      }
     } catch (e) {
-      print('Error loading audio: $audioUrl');
-      print(e);
+      if (kDebugMode) {
+        print('Error loading audio: $audioUrl');
+      }
+      if (kDebugMode) {
+        print(e);
+      }
     }
   }
 
@@ -83,9 +91,13 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
       currentAudioUrl = audio[currentIndex];
       try {
         await preloadAudio("https://verses.quran.com/$currentAudioUrl");
-        print('Starting to play audio: $currentAudioUrl');
+        if (kDebugMode) {
+          print('Starting to play audio: $currentAudioUrl');
+        }
         await audioPlayer.play("https://verses.quran.com/$currentAudioUrl");
-        print('Audio playback started: $currentAudioUrl');
+        if (kDebugMode) {
+          print('Audio playback started: $currentAudioUrl');
+        }
         await audioPlayer.setVolume(1.0);
         currentIndex++;
         isLoadingNextVerse = false;
@@ -95,10 +107,16 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
         } else {
           nextAudioUrl = ""; // Si c'est le dernier verset, le prochain est une chaîne vide
         }
-        print('Finished playing audio: $currentAudioUrl');
+        if (kDebugMode) {
+          print('Finished playing audio: $currentAudioUrl');
+        }
       } catch (e) {
-        print('Error playing audio: $currentAudioUrl');
-        print(e);
+        if (kDebugMode) {
+          print('Error playing audio: $currentAudioUrl');
+        }
+        if (kDebugMode) {
+          print(e);
+        }
       }
     }
   }
@@ -266,10 +284,10 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
     var pages = <List<dynamic>>[];
     int nombredepage = 1;
     var url = Uri.parse(
-        '$API_BASE_URL/verses/by_chapter/${widget.surah['id']}?language=en&words=false');
+        '$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?language=en&words=false');
     var headers = {
       'accept': 'application/json',
-      'X-API-Key': API_KEY,
+      'X-API-Key': apiKey,
     };
     var response = await http.get(url, headers: headers);
     if (response.statusCode == 200) {
@@ -277,10 +295,10 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
       nombredepage = data['total_pages'];
       for (var i = 1; i <= nombredepage; i++) {
         var url = Uri.parse(
-            '$API_BASE_URL/verses/by_chapter/${widget.surah['id']}?words=true&translations=fr&audio=4&word_fields=code_v1&page=$i&per_page=10');
+            '$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?words=true&translations=fr&audio=4&word_fields=code_v1&page=$i&per_page=10');
         var headers = {
           'accept': 'application/json',
-          'X-API-Key': API_KEY,
+          'X-API-Key': apiKey,
         };
         var response = await http.get(url, headers: headers);
         if (response.statusCode == 200) {
