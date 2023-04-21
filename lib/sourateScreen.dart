@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
@@ -19,26 +18,25 @@ class QuranSurahDetailsScreen extends StatefulWidget {
 
 class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
   bool isplaying = false;
-  late Future<Map<String, dynamic>> surahVerses;
+  late Future<List<List<dynamic>>> pages;
   final audioPlayer = AudioPlayer();
   Duration duration = Duration.zero;
   Duration position = Duration.zero;
-  int currentIndex = 0;
-  List<String> audio = [];
+  bool audioLoaded = false;
+
   late String currentAudioUrl;
   late String nextAudioUrl;
-  late bool isLoadingNextVerse;
+
   bool isDisposed = false;
   Duration lastPosition = Duration.zero;
   bool waspaused = false; // Ajouter cette ligne et initialiser à false
   late List<double> audioDurations;
+  var recitationAudio="";
 
   @override
   void initState() {
     super.initState();
-    isLoadingNextVerse = false;
-    surahVerses = fetchSurahVerses();
-
+    pages = fetchPages();
     audioPlayer.onPlayerStateChanged.listen((state) {
       if (isDisposed) return;
       setState(() {
@@ -60,50 +58,31 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
       });
     });
 
-    audioPlayer.onPlayerCompletion.listen((event) async {
-      if (currentIndex < audio.length) {
-        await playVerseAudio();
-      } else {
-        setState(() {
-          isplaying = false;
-        });
-      }
-    });
   }
   Future<void> preloadAudio(String audioUrl) async {
     await audioPlayer.setUrl(audioUrl);
-  }
-
-  Future<void> playVerseAudio() async {
-    if (currentIndex < audio.length) {
-      currentAudioUrl = audio[currentIndex];
-      await preloadAudio("https://verses.quran.com/$currentAudioUrl");
-      await audioPlayer.play("https://verses.quran.com/$currentAudioUrl");
-      await audioPlayer.setVolume(1.0);
-      currentIndex++;
-    }
   }
 
   Future<double> fetchAudioDuration(String audioUrl) async {
     Completer<Duration> completer = Completer();
     AudioPlayer audioPlayer = AudioPlayer();
     await audioPlayer.setUrl("https://verses.quran.com/$audioUrl");
+
     audioPlayer.onDurationChanged.listen((Duration duration) {
       if (!completer.isCompleted) {
         completer.complete(duration);
       }
     });
+
     Duration audioDuration = await completer.future;
     double durationInSeconds = audioDuration.inMilliseconds / 1000;
     return durationInSeconds;
   }
 
   Future<List<double>> fetchAllAudioDurations(List<String> audioUrls) async {
-
     List<Future<double>> durationFutures = audioUrls.map((url) => fetchAudioDuration(url)).toList();
     List<double> durees = await Future.wait(durationFutures);
     return durees;
-
   }
 
   @override
@@ -111,12 +90,87 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
     isDisposed = true;
     audioPlayer.stop();
     audioPlayer.dispose();
-    audio.clear();
     audioPlayer.onPlayerStateChanged.drain();
     audioPlayer.onDurationChanged.drain();
     audioPlayer.onAudioPositionChanged.drain();
     audioPlayer.onPlayerCompletion.drain();
     super.dispose();
+  }
+
+  Widget buildAudioPlayer() {
+    return Column(
+      children: [
+        CircleAvatar(
+          radius: 20,
+          child: IconButton(
+            icon: Icon(
+              isplaying ? Icons.pause : Icons.play_arrow,
+            ),
+            onPressed: () async {
+              if (!audioLoaded) {
+                var data = await fetchRecitationAndDurations();
+                recitationAudio = data['recitation'];
+                audioDurations = data['durations'];
+                await preloadAudio(recitationAudio);
+                setState(() {
+                  audioLoaded = true;
+                });
+              }
+              if (isplaying) {
+                await audioPlayer.pause();
+              } else {
+                await audioPlayer.play(recitationAudio);
+              }
+              setState(() {
+                isplaying = !isplaying;
+              });
+            },
+          ),
+        ),
+        Slider(
+          min: 0,
+          max: duration.inSeconds.toDouble(),
+          value: position.inSeconds.toDouble(),
+          onChanged: (value) async {
+            final position = Duration(seconds: value.toInt());
+            await audioPlayer.seek(position);
+            await audioPlayer.resume();
+          },
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(position.toString()),
+              Text((duration - position).toString())
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildVerseText(List<TextSpan> words) {
+    return SizedBox(
+      height: MediaQuery.of(context).size.height * (2/ 4),
+      child: Container(
+        color: Colors.grey[200],
+        child: SingleChildScrollView(
+          scrollDirection: Axis.vertical,
+          physics: const BouncingScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: RichText(
+                text: TextSpan(children: words),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
 
@@ -148,12 +202,12 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
             height: MediaQuery.of(context).size.height * (3 / 4),
             child: Container(
               padding: const EdgeInsets.all(2.0),
-              child: FutureBuilder<Map<String, dynamic>>(
-                future: surahVerses,
-                builder: (BuildContext context, AsyncSnapshot<Map<String, dynamic>> snapshot) {
+              child: FutureBuilder<List<List<dynamic>>>(
+                future: pages,
+                builder: (BuildContext context, AsyncSnapshot<List<List<dynamic>>> snapshot) {
                   if (snapshot.hasData) {
                     var words = <TextSpan>[];
-                    for (var page in snapshot.data!['pages']) {
+                    for (var page in snapshot.data!) {
                       for (var verse in page) {
                         verse['words'].forEach((word) {
                           var fontFamily = '';
@@ -176,77 +230,12 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
                             ),
                           );
                         });
-                        audio.add(verse['audio']['url']);
                       }
                     }
                     return Column(
                       children: [
-                        CircleAvatar(
-                          radius: 20,
-                          child: IconButton(
-                            icon: Icon(
-                              isplaying ? Icons.pause : Icons.play_arrow,
-                            ),
-                            onPressed: () async {
-                              if (isplaying) {
-                                await audioPlayer.pause();
-                                setState(() {
-                                  waspaused = true; // Définir waspaused à true
-                                });
-                              } else {
-                                if (position >= duration) {
-                                  currentIndex = 0;
-                                  audioPlayer.stop();
-                                }
-                                if (waspaused) {
-                                  await audioPlayer.resume();
-                                } else {
-                                  await playVerseAudio();
-                                }
-                                setState(() {
-                                  waspaused = false; // Définir waspaused à false
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                        Slider(
-                          min: 0,
-                          max: duration.inSeconds.toDouble(),
-                          value: position.inSeconds.toDouble(),
-                          onChanged: (value) async {
-                            final position = Duration(seconds: value.toInt());
-                            await audioPlayer.seek(position);
-                            await audioPlayer.resume();
-                          },
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(position.toString()),
-                              Text((duration - position).toString())
-                            ],
-                          ),
-                        ),
-                        Container(
-                          color: Colors.grey[200], // Couleur de fond
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.vertical,
-                            physics: const BouncingScrollPhysics(),
-                            child: Padding(
-                              padding:
-                              const EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: RichText(
-                                  text: TextSpan(children: words),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
+                        buildAudioPlayer(),
+                        buildVerseText(words),
                       ],
                     );
                   } else if (snapshot.hasError) {
@@ -262,9 +251,9 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
       ),
     );
   }
-  Future<Map<String, dynamic>> fetchSurahVerses() async {
+
+  Future<List<List<dynamic>>> fetchPages() async {
     var pages = <List<dynamic>>[];
-    List<double> audioDuration = [];
     int nombredepage = 1;
     var url = Uri.parse('$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?language=en&words=false');
     var headers = {
@@ -285,8 +274,6 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
         if (response.statusCode == 200) {
           var data = jsonDecode(response.body)['verses'];
           pages.add(data);
-          List<String> audioUrls = (data as List<dynamic>).map((verse) => (verse['audio']['url'] as String)).toList();
-          audioDuration = await fetchAllAudioDurations(audioUrls);
         } else {
           throw Exception('Erreur: ${response.statusCode}');
         }
@@ -294,10 +281,42 @@ class _QuranSurahDetailsScreenState extends State<QuranSurahDetailsScreen> {
     } else {
       throw Exception('Erreur: ${response.statusCode}');
     }
+    return pages;
+  }
+
+  Future<Map<String, dynamic>> fetchRecitationAndDurations() async {
+    String recitation = "";
+    List<double> audioDuration = [];
+
+    // Fetch recitation
+    var recitationUrl = Uri.parse('$apiBaseUrl/chapter_recitations/4/${widget.surah['id']}');
+    var headers = {
+      'accept': 'application/json',
+      'X-API-Key': apiKey,
+    };
+    var response = await http.get(recitationUrl, headers: headers);
+    if (response.statusCode == 200) {
+      recitation = jsonDecode(response.body)['audio_file']['audio_url'];
+    } else {
+      throw Exception('Erreur: ${response.statusCode}');
+    }
+    var durationUrl = Uri.parse('$apiBaseUrl/verses/by_chapter/${widget.surah['id']}?words=true&translations=fr&audio=4&word_fields=code_v1&page=1&per_page=10');
+    response = await http.get(durationUrl, headers: headers);
+    if (response.statusCode == 200) {
+      var data = jsonDecode(response.body)['verses'];
+      List<String> audioUrls = (data as List<dynamic>).map((verse) => (verse['audio']['url'] as String)).toList();
+      audioDuration = await fetchAllAudioDurations(audioUrls);
+      for (int i = 1; i < audioDuration.length; i++) {
+        audioDuration[i] += audioDuration[i - 1];
+      }
+    } else {
+      throw Exception('Erreur: ${response.statusCode}');
+    }
 
     return {
-      'pages': pages,
+      'recitation': recitation,
       'durations': audioDuration,
     };
   }
+
 }
